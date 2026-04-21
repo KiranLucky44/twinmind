@@ -20,15 +20,19 @@ function MicButton({
       disabled={isDisabled}
       aria-label={isRecording ? 'Stop recording' : 'Start recording'}
       className={`
-        relative w-12 h-12 rounded-full transition-all duration-200 flex items-center justify-center
-        disabled:opacity-40 disabled:cursor-not-allowed
+        relative w-12 h-12 rounded-full transition-all duration-300 flex items-center justify-center
+        disabled:opacity-40 disabled:cursor-not-allowed z-10
         ${isRecording
-          ? 'bg-red-500 hover:bg-red-600 text-white'
-          : 'bg-[#3b82f6] hover:bg-blue-500 text-white'
+          ? 'bg-[#3b82f6] text-white animate-ethereal'
+          : 'bg-[#1a2333]/80 hover:bg-blue-500/20 text-[#3b82f6] border border-blue-500/30'
         }
       `}
     >
-      <div className={`w-3.5 h-3.5 rounded-full ${isRecording ? 'bg-white animate-pulse' : 'bg-[#0b1220]'}`} />
+      {/* Recording Ring Animation */}
+      {isRecording && (
+        <div className="absolute inset-0 rounded-full bg-blue-500 animate-recording-ring -z-10" />
+      )}
+      <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-white' : 'bg-[#3b82f6]'}`} />
     </button>
   );
 }
@@ -117,11 +121,14 @@ const TranscriptPanel = () => {
     <div className="flex flex-col h-full bg-transparent">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937]">
-        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase">1. MIC & TRANSCRIPT</h2>
-        <span className="text-[10px] font-semibold text-[#4b5563]">
-          {isRecording ? 'RECORDING' : 'IDLE'}
-        </span>
+      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937] backdrop-blur-md bg-[#0b1220]/80 sticky top-0 z-20">
+        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-widest uppercase">1. MIC & TRANSCRIPT</h2>
+        <div className="flex items-center gap-1.5">
+          {isRecording && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+          <span className={`text-[10px] font-bold ${isRecording ? 'text-blue-500' : 'text-[#4b5563]'}`}>
+            {isRecording ? 'RECORDING' : 'IDLE'}
+          </span>
+        </div>
       </div>
 
       {/* ── Mic Section ──────────────────────────────────────────────────── */}
@@ -138,10 +145,11 @@ const TranscriptPanel = () => {
 
       {/* ── Info Box ────────────────────────────────────────────────────── */}
       <div className="px-5 mb-6 shrink-0">
-        <div className="p-4 rounded-lg bg-[#1a2333]/40 border border-[#1f2937]">
+        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937] relative overflow-hidden group">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500/0 via-blue-500/40 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
           <p className="text-[11px] text-[#9ca3af] leading-relaxed">
             The transcript scrolls and appends new chunks every ~30 seconds while recording. 
-            Use the mic button to start/stop. Include an export button (not shown) so we can pull the full session.
+            Use the mic button or <kbd className="bg-[#0b1220] px-1 rounded border border-[#1f2937] text-[9px]">Space</kbd> to start.
           </p>
         </div>
       </div>
@@ -166,7 +174,7 @@ const TranscriptPanel = () => {
         className="flex-1 overflow-y-auto px-5 pb-5 space-y-4"
       >
         {transcript.length === 0 && !isBusy ? (
-          <div className="h-full flex items-center justify-center">
+          <div className="h-48 flex items-center justify-center animate-fade-up">
             <p className="text-[13px] text-[#4b5563] italic">
               No transcript yet — start the mic.
             </p>
@@ -174,7 +182,7 @@ const TranscriptPanel = () => {
         ) : (
           <>
             {transcript.map((segment, idx) => (
-              <div key={segment.id} className="animate-fade-in group">
+              <div key={segment.id} className="animate-fade-up group" style={{ animationDelay: `${idx * 0.05}s` }}>
                 <p className="text-[13px] text-[#e5e7eb] leading-relaxed">
                   {segment.text}
                 </p>

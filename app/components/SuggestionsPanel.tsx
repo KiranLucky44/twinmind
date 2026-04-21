@@ -87,8 +87,10 @@ function SuggestionCard({
     <button
       onClick={() => onSelect(suggestion)}
       className="w-full text-left rounded-xl border border-[#1f2937] bg-[#111827] p-5
-                 hover:bg-[#1a2333]/80 transition-all duration-150 group relative"
+                 hover:bg-[#1a2333] hover:border-blue-500/30 hover:-translate-y-1
+                 transition-all duration-300 group relative shadow-sm hover:shadow-blue-500/10"
     >
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
       {/* Type badge */}
       <span
         className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest mb-3 ${meta.className}`}
@@ -153,9 +155,9 @@ const SuggestionsPanel = () => {
     <div className="flex flex-col h-full bg-transparent">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937]">
-        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase">2. LIVE SUGGESTIONS</h2>
-        <span className="text-[10px] font-semibold text-[#4b5563]">
+      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937] backdrop-blur-md bg-[#0b1220]/80 sticky top-0 z-20">
+        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-widest uppercase">2. LIVE SUGGESTIONS</h2>
+        <span className="text-[10px] font-bold text-[#4b5563]">
           {suggestionBatches.length} BATCHES
         </span>
       </div>
@@ -179,9 +181,11 @@ const SuggestionsPanel = () => {
 
       {/* ── Info Box ────────────────────────────────────────────────────── */}
       <div className="px-5 mb-8 shrink-0">
-        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937]">
+        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937] relative overflow-hidden group">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500/0 via-blue-500/40 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
           <p className="text-[11px] text-[#9ca3af] leading-relaxed">
-            On reload (or auto every ~30s), generate <strong className="text-[#e5e7eb]">3 fresh suggestions</strong> from recent transcript context. New batch appears at the top; older batches push down (faded). Each is a tappable card: a <span className="text-blue-400">question to ask</span>, a <span className="text-purple-400">talking point</span>, an <span className="text-emerald-400">answer</span>, or a <span className="text-amber-400">fact-check</span>. The preview alone should already be useful.
+            On reload (or auto every ~30s), generate <strong className="text-[#e5e7eb]">3 fresh suggestions</strong> from recent context. 
+            Each is a tactile card: a <span className="text-blue-400">question</span>, <span className="text-purple-400">talking point</span>, <span className="text-emerald-400">answer</span>, or <span className="text-amber-400">fact-check</span>.
           </p>
         </div>
       </div>
@@ -234,8 +238,10 @@ const SuggestionsPanel = () => {
                 <SkeletonCard />
               </>
             ) : (
-              batch.suggestions.map((s) => (
-                <SuggestionCard key={s.id} suggestion={s} onSelect={handleSelect} />
+              batch.suggestions.map((s, sIdx) => (
+                <div key={s.id} className="animate-fade-up" style={{ animationDelay: `${sIdx * 0.1}s` }}>
+                  <SuggestionCard suggestion={s} onSelect={handleSelect} />
+                </div>
               ))
             )}
           </div>

@@ -32,8 +32,8 @@ body {
 
 /* ── Scrollbars — thin, minimal ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -41,21 +41,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1; /* slate-300 */
+  background: #1f2937; /* Gray-800 */
   border-radius: 9999px;
+  border: 1px solid #0b1220; /* Matches background for 'floating' thumb look */
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
-}
-
-@media (prefers-color-scheme: dark) {
-  ::-webkit-scrollbar-thumb {
-    background: #334155; /* slate-700 */
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #475569; /* slate-600 */
-  }
+  background: #374151; /* Gray-700 */
 }
 
 /* ── Smooth scroll for overflow containers ──────────────────────────────────── */
@@ -66,32 +58,46 @@ body {
 
 /* ── Animations ─────────────────────────────────────────────────────────────── */
 
-/* Subtle pulse for status indicators */
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
+/* Ethereal glow for active recording */
+@keyframes ethereal-glow {
+  0%, 100% { 
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4), 0 0 20px rgba(59, 130, 246, 0.2); 
+    transform: scale(1);
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6), 0 0 40px rgba(59, 130, 246, 0.3); 
+    transform: scale(1.02);
+  }
 }
-.animate-pulse-subtle {
-  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.animate-ethereal {
+  animation: ethereal-glow 3s ease-in-out infinite;
 }
 
-/* Recording pulse ring */
+/* Recording pulse ring (behind the button) */
 @keyframes recording-ring {
-  0%   { transform: scale(1);   opacity: 0.8; }
-  70%  { transform: scale(1.6); opacity: 0;   }
-  100% { transform: scale(1.6); opacity: 0;   }
+  0%   { transform: scale(0.95); opacity: 0.6; }
+  70%  { transform: scale(1.8);  opacity: 0;   }
+  100% { transform: scale(1.8);  opacity: 0;   }
 }
 .animate-recording-ring {
-  animation: recording-ring 1.4s ease-out infinite;
+  animation: recording-ring 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
-/* Fade + slide in for new items */
-@keyframes fade-slide-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0);   }
+/* Sequential fade-up entry */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0);    }
 }
-.animate-fade-in {
-  animation: fade-slide-in 0.2s ease-out both;
+.animate-fade-up {
+  animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Typing cursor pulse */
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+.animate-cursor {
+  animation: cursor-blink 0.8s step-end infinite;
 }
 
 /* ── Focus styles — consistent ring ─────────────────────────────────────────── */

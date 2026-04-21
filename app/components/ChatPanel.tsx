@@ -44,7 +44,7 @@ function renderContent(text: string) {
 function TypingCursor() {
   return (
     <span
-      className="inline-block w-0.5 h-3.5 bg-slate-500 dark:bg-slate-400 ml-0.5 align-middle animate-pulse"
+      className="inline-block w-0.5 h-3.5 bg-blue-500 ml-0.5 align-middle animate-cursor"
       aria-hidden
     />
   );
@@ -297,18 +297,19 @@ const ChatPanel = () => {
     <div className="flex flex-col h-full bg-transparent">
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937]">
-        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase">3. CHAT (DETAILED ANSWERS)</h2>
-        <span className="text-[10px] font-semibold text-[#4b5563]">
+      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937] backdrop-blur-md bg-[#0b1220]/80 sticky top-0 z-20">
+        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-widest uppercase">3. CHAT (DETAILED ANSWERS)</h2>
+        <span className="text-[10px] font-bold text-[#4b5563]">
           SESSION-ONLY
         </span>
       </div>
 
       {/* ── Info Box ────────────────────────────────────────────────────── */}
       <div className="px-5 py-6 shrink-0">
-        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937]">
-          <p className="text-[11px] text-[#9ca3af] leading-relaxed">
-            Clicking a suggestion adds it to this chat and streams a detailed answer (separate prompt, more context). User can also type questions directly. One continuous chat per session — no login, no persistence.
+        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937] relative overflow-hidden group">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500/0 via-blue-500/40 to-blue-500/0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <p className="text-[11px] text-[#9ca3af] leading-relaxed font-medium">
+            Clicking a suggestion adds it to this chat and streams a detailed answer. One continuous chat per session — no login, no persistence.
           </p>
         </div>
       </div>
@@ -331,7 +332,7 @@ const ChatPanel = () => {
               if (!isUser && message.content === '' && showDots) return null;
 
               return (
-                <div key={message.id} className="flex flex-col gap-2">
+                <div key={message.id} className="flex flex-col gap-2 animate-fade-up">
                   <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
                       <div className={`px-4 py-3 rounded-xl text-[13px] leading-relaxed ${
@@ -357,8 +358,8 @@ const ChatPanel = () => {
       </div>
 
       {/* ── Input ────────────────────────────────────────────────────────── */}
-      <div className="p-3 shrink-0">
-        <div className="flex gap-2 items-center bg-[#1a2333] rounded-lg p-1.5 border border-[#1f2937]">
+      <div className="p-4 shrink-0 border-t border-[#1f2937] backdrop-blur-md bg-[#0b1220]/40">
+        <div className="flex gap-2 items-center bg-[#1a2333] rounded-xl p-1.5 border border-[#1f2937] focus-within:border-blue-500/50 transition-colors shadow-lg">
           <input
             ref={inputRef}
             id="chat-input"
@@ -374,7 +375,7 @@ const ChatPanel = () => {
             id="chat-send-button"
             onClick={handleManualSend}
             disabled={!inputValue.trim() || isStreaming}
-            className="px-4 py-1.5 bg-[#3b82f6] text-white rounded font-bold text-[12px] hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="px-5 py-2 bg-[#3b82f6] hover:bg-blue-500 text-white rounded-lg font-bold text-[12px] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-blue-500/10"
           >
             {isStreaming ? 'Wait...' : 'Send'}
           </button>
