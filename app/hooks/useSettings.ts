@@ -31,7 +31,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   groqApiKey: '',
 
-  suggestionsPrompt: `You are an expert real-time conversation assistant embedded in a live-transcription interface.
+  suggestionsPrompt: `You MUST output a valid JSON object. You are an expert real-time conversation assistant embedded in a live-transcription interface.
 
 Your task: analyse the most recent portion of a live conversation transcript and produce **exactly 3** context-aware suggestions that help the participants at this precise moment in time.
 

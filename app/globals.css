@@ -17,7 +17,7 @@
 
 /* ── Base ──────────────────────────────────────────────────────────────────── */
 html {
-  scroll-behavior: smooth;
+  /* scroll-behavior: smooth; */ /* Removed: conflicts with programmatic scroll during streaming */
 }
 
 body {
@@ -53,7 +53,7 @@ body {
 /* ── Smooth scroll for overflow containers ──────────────────────────────────── */
 .overflow-y-auto,
 .overflow-y-scroll {
-  scroll-behavior: smooth;
+  /* scroll-behavior: smooth; */ /* Removed: causes stuttering in real-time chat streaming */
 }
 
 /* ── Animations ─────────────────────────────────────────────────────────────── */

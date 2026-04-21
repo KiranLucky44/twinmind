@@ -125,18 +125,28 @@ export function useExport() {
 
     // ── Trigger download ─────────────────────────────────────────────────────
     const json = JSON.stringify(doc, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
+    // Use application/octet-stream to force the browser to treat this as a file download
+    const blob = new Blob([json], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
 
-    const filename = `twinmind-session-${now.toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    // Simple filename with safe characters only (no 'T', no colons)
+    const filename = `twinmind_session_${now.getFullYear()}_${(now.getMonth() + 1).toString().padStart(2, '0')}_${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}.json`;
 
     const anchor = document.createElement('a');
+    anchor.style.display = 'none';
     anchor.href = url;
     anchor.download = filename;
-    anchor.click();
+    anchor.rel = 'noopener';
 
-    // Revoke after a tick to let the browser initiate the download
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    // Many browser security policies require the element to be in the DOM
+    // to successfully trigger a programmatic click for a download.
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+
+    // Increase the revocation window to 5s. 100ms is too short for some
+    // environments to initiate the transfer of data from the blob.
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, [transcript, suggestionBatches, chatMessages]);
 
   return { exportSession };

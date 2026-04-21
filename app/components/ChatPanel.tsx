@@ -6,36 +6,38 @@ import {
   useState,
   useCallback,
   useLayoutEffect,
+  memo,
 } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, ChatMessage } from '../context/AppContext';
 
 // ── Markdown-lite renderer ───────────────────────────────────────────────────
 // Handles **bold**, `code`, and line breaks without pulling in a full library.
 function renderContent(text: string) {
+  if (!text) return null;
   const lines = text.split('\n');
   return lines.map((line, li) => {
     // Split on **bold** and `code` markers
     const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
     return (
-      <span key={li}>
+      <div key={`line-${li}`} className="min-h-[1.5em]">
         {parts.map((part, pi) => {
+          const key = `part-${li}-${pi}`;
           if (part.startsWith('**') && part.endsWith('**')) {
-            return <strong key={pi}>{part.slice(2, -2)}</strong>;
+            return <strong key={key} className="font-bold">{part.slice(2, -2)}</strong>;
           }
           if (part.startsWith('`') && part.endsWith('`')) {
             return (
               <code
-                key={pi}
-                className="px-1.5 py-0.5 rounded bg-[#0b1220] text-[#e5e7eb] border border-[#1f2937] font-mono text-[11px]"
+                key={key}
+                className="px-1 py-0.5 rounded bg-[#0b1220] text-[#e5e7eb] border border-[#1f2937] font-mono text-[10px]"
               >
                 {part.slice(1, -1)}
               </code>
             );
           }
-          return <span key={pi}>{part}</span>;
+          return <span key={key}>{part}</span>;
         })}
-        {li < lines.length - 1 && <br />}
-      </span>
+      </div>
     );
   });
 }
@@ -89,6 +91,40 @@ function Avatar({ role }: { role: 'user' | 'assistant' }) {
   );
 }
 
+// ── Chat Message Item (Memoized) ──────────────────────────────────────────────
+const ChatMessageItem = memo(({ 
+  message, 
+  isStreaming, 
+  isLast 
+}: { 
+  message: ChatMessage; 
+  isStreaming: boolean; 
+  isLast: boolean 
+}) => {
+  const isUser = message.role === 'user';
+  
+  return (
+    <div className={`flex flex-col gap-2 ${isLast && !isUser ? '' : 'animate-fade-up'}`}>
+      <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        <div className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
+          <div className={`px-4 py-3 rounded-xl text-[13px] leading-relaxed shadow-sm ${
+            isUser ? 'bg-[#3b82f6] text-white' : 'bg-[#1a2333]/60 text-[#e5e7eb] border border-[#1f2937]'
+          }`}>
+            {isUser ? message.content : (
+              <>
+                {renderContent(message.content)}
+                {isLast && isStreaming && <TypingCursor />}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ChatMessageItem.displayName = 'ChatMessageItem';
+
 // ── Main panel ───────────────────────────────────────────────────────────────
 
 const ChatPanel = () => {
@@ -113,16 +149,15 @@ const ChatPanel = () => {
   const prevScrollTop = useRef(0);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────────
-  // Use useLayoutEffect so scroll happens synchronously after DOM paint.
+  // Instant, synchronous scroll for streaming performance.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || userScrolledUp.current) return;
     
-    // requestAnimationFrame ensures we scroll after the browser has finished
-    // calculation of the new layout following the message update.
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
+    // We direct assign scrollTop here. Since we've disabled CSS smooth-scroll,
+    // this will perfectly "stick" the bottom of the content to the viewport
+    // as it grows, without any visual vibration or lagging.
+    el.scrollTop = el.scrollHeight;
   }, [chatMessages, isStreaming]);
 
   useEffect(() => {
@@ -158,8 +193,8 @@ const ChatPanel = () => {
         { role: 'user' as const, content: userText },
       ].map(({ role, content }) => ({ role, content }));
 
-      // 1. Add user message to UI
-      addChatMessage('user', userText);
+      // 1. We no longer call addChatMessage('user') here because 
+      // the message has already been added to the state to trigger this flow.
 
       // 2. Seed empty assistant bubble — streaming will fill it token by token
       addChatMessage('assistant', '');
@@ -279,8 +314,7 @@ const ChatPanel = () => {
     const text = inputValue.trim();
     if (!text) return;
     setInputValue('');
-    lastProcessedId.current = Date.now().toString(); // prevent double-fire
-    sendMessage(text);
+    addChatMessage('user', text);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -328,26 +362,16 @@ const ChatPanel = () => {
         ) : (
           <>
             {chatMessages.map((message, idx) => {
-              const isUser = message.role === 'user';
-              if (!isUser && message.content === '' && showDots) return null;
+              const isLast = idx === chatMessages.length - 1;
+              if (message.role === 'assistant' && message.content === '' && showDots) return null;
 
               return (
-                <div key={message.id} className="flex flex-col gap-2 animate-fade-up">
-                  <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
-                      <div className={`px-4 py-3 rounded-xl text-[13px] leading-relaxed ${
-                        isUser ? 'bg-[#3b82f6] text-white' : 'bg-[#1a2333]/60 text-[#e5e7eb] border border-[#1f2937]'
-                      }`}>
-                        {isUser ? message.content : (
-                          <>
-                            {renderContent(message.content)}
-                            {idx === chatMessages.length - 1 && isStreaming && !showDots && <TypingCursor />}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <ChatMessageItem
+                  key={message.id}
+                  message={message}
+                  isStreaming={isStreaming && isLast && !showDots}
+                  isLast={isLast}
+                />
               );
             })}
 

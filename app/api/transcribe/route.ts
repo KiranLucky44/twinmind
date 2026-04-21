@@ -13,28 +13,50 @@ async function transcribeWithGroq(audio: File, apiKey: string): Promise<string> 
   body.append('model', 'whisper-large-v3');
   body.append('response_format', 'json');
 
-  const response = await fetch(GROQ_API_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body,
-  });
+  const maxAttempts = 2;
+  let attempts = 0;
+  let lastError: any = null;
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const message: string =
-      payload?.error?.message ??
-      payload?.message ??
-      response.statusText;
+  while (attempts < maxAttempts) {
+    attempts++;
+    try {
+      const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body,
+      });
 
-    // Preserve the upstream HTTP status so the POST handler can relay it.
-    const err = new Error(message) as Error & { status: number };
-    err.status = response.status;
-    throw err;
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const message: string =
+          payload?.error?.message ??
+          payload?.message ??
+          response.statusText;
+
+        // Preserve the upstream HTTP status so the POST handler can relay it.
+        const err = new Error(message) as Error & { status: number };
+        err.status = response.status;
+        throw err;
+      }
+
+      const result = await response.json();
+      return (result.text as string | undefined) ?? '';
+    } catch (err: any) {
+      lastError = err;
+      // Don't retry on client errors (4xx) unless it's a rate limit (429)
+      if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) {
+        throw err;
+      }
+      
+      console.warn(`[Transcription] Attempt ${attempts} failed: ${err.message}`);
+      if (attempts >= maxAttempts) throw lastError;
+      
+      // Small delay before retry
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
-
-  const result = await response.json();
-  // Groq returns { text: "..." }; fall back to empty string for silent audio.
-  return (result.text as string | undefined) ?? '';
+  
+  throw lastError || new Error('Transcription failed after multiple attempts');
 }
 
 // ---------------------------------------------------------------------------
