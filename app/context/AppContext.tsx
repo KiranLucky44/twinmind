@@ -97,11 +97,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [meetingSummary, setMeetingSummary] = React.useState('');
   const [interimTranscript, setInterimTranscript] = React.useState('');
 
-  const appendTranscript = (text: string) =>
+  const appendTranscript = React.useCallback((text: string) =>
     setTranscript((prev) => [
       ...prev,
       { id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, text, timestamp: Date.now() },
-    ]);
+    ]), []);
 
   // ── Infinite Context Memory (Rolling RAG) ───────────────────────────────
   const summarizedCountRef = React.useRef(0);
@@ -132,7 +132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [transcript.length, meetingSummary, settings.groqApiKey]);
 
-  const addSuggestionBatch = (suggestions: Suggestion[]) => {
+  const addSuggestionBatch = React.useCallback((suggestions: Suggestion[]) => {
     if (suggestions.length !== 3) {
       console.warn('SuggestionBatch must contain exactly 3 suggestions');
       return;
@@ -141,23 +141,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       { id: `batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, suggestions, timestamp: Date.now() },
       ...prev,
     ]);
-  };
+  }, []);
 
-  const addChatMessage = (role: 'user' | 'assistant', content: string) =>
+  const addChatMessage = React.useCallback((role: 'user' | 'assistant', content: string) =>
     setChatMessages((prev) => [
       ...prev,
       { id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, role, content, timestamp: Date.now() },
-    ]);
+    ]), []);
 
-  const appendToLastMessage = (chunk: string) =>
+  const appendToLastMessage = React.useCallback((chunk: string) =>
     setChatMessages((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       if (last.role !== 'assistant') return prev;
       return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
-    });
+    }), []);
 
-  const resetSession = () => {
+  const resetSession = React.useCallback(() => {
     setTranscript([]);
     setSuggestionBatches([]);
     setChatMessages([]);
@@ -166,9 +166,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setMeetingSummary('');
     setInterimTranscript('');
     summarizedCountRef.current = 0;
-  };
+  }, []);
 
-  const clearTranscript = () => setTranscript([]);
+  const clearTranscript = React.useCallback(() => setTranscript([]), []);
 
   const value: AppContextType = {
     transcript,
