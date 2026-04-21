@@ -1,0 +1,387 @@
+'use client';
+
+import {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useLayoutEffect,
+} from 'react';
+import { useApp } from '../context/AppContext';
+
+// ── Markdown-lite renderer ───────────────────────────────────────────────────
+// Handles **bold**, `code`, and line breaks without pulling in a full library.
+function renderContent(text: string) {
+  const lines = text.split('\n');
+  return lines.map((line, li) => {
+    // Split on **bold** and `code` markers
+    const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+    return (
+      <span key={li}>
+        {parts.map((part, pi) => {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={pi}>{part.slice(2, -2)}</strong>;
+          }
+          if (part.startsWith('`') && part.endsWith('`')) {
+            return (
+              <code
+                key={pi}
+                className="px-1.5 py-0.5 rounded bg-[#0b1220] text-[#e5e7eb] border border-[#1f2937] font-mono text-[11px]"
+              >
+                {part.slice(1, -1)}
+              </code>
+            );
+          }
+          return <span key={pi}>{part}</span>;
+        })}
+        {li < lines.length - 1 && <br />}
+      </span>
+    );
+  });
+}
+
+// ── Typing cursor ────────────────────────────────────────────────────────────
+function TypingCursor() {
+  return (
+    <span
+      className="inline-block w-0.5 h-3.5 bg-slate-500 dark:bg-slate-400 ml-0.5 align-middle animate-pulse"
+      aria-hidden
+    />
+  );
+}
+
+// ── Dot loader (before first token arrives) ──────────────────────────────────
+function DotLoader() {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 rounded-2xl rounded-bl-sm max-w-xs">
+        <div className="flex gap-1.5 items-center">
+          {[0, 150, 300].map((delay) => (
+            <span
+              key={delay}
+              className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce"
+              style={{ animationDelay: `${delay}ms` }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Avatar ───────────────────────────────────────────────────────────────────
+function Avatar({ role }: { role: 'user' | 'assistant' }) {
+  if (role === 'user') {
+    return (
+      <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+        <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+        </svg>
+      </div>
+    );
+  }
+  return (
+    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center shrink-0">
+      <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v1h8v-1zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-1a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v1h-3zM4.75 12.094A5.973 5.973 0 004 15v1H1v-1a3 3 0 013.75-2.906z" />
+      </svg>
+    </div>
+  );
+}
+
+// ── Main panel ───────────────────────────────────────────────────────────────
+
+const ChatPanel = () => {
+  const {
+    chatMessages,
+    transcript,
+    addChatMessage,
+    appendToLastMessage,
+    settings,
+  } = useApp();
+
+  const [inputValue, setInputValue] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [showDots, setShowDots] = useState(false); // true only before first token
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Track whether user has manually scrolled up (don't hijack their scroll)
+  const userScrolledUp = useRef(false);
+  const prevScrollTop = useRef(0);
+
+  // ── Auto-scroll ────────────────────────────────────────────────────────────
+  // Use useLayoutEffect so scroll happens synchronously after DOM paint.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || userScrolledUp.current) return;
+    
+    // requestAnimationFrame ensures we scroll after the browser has finished
+    // calculation of the new layout following the message update.
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [chatMessages, isStreaming]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      if (el.scrollTop < prevScrollTop.current && !atBottom) {
+        userScrolledUp.current = true;
+      } else if (atBottom) {
+        userScrolledUp.current = false;
+      }
+      prevScrollTop.current = el.scrollTop;
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // ── Streaming send ─────────────────────────────────────────────────────────
+  const sendMessage = useCallback(
+    async (userText: string) => {
+      if (!userText.trim() || isStreaming) return;
+
+      // Abort any in-flight request
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // Build full message thread BEFORE any state mutations so we don't
+      // capture stale intermediate state. Manually append the new user turn.
+      const historyMessages = [
+        ...chatMessages.filter((m) => m.content !== ''), // exclude seeded empty bubbles
+        { role: 'user' as const, content: userText },
+      ].map(({ role, content }) => ({ role, content }));
+
+      // 1. Add user message to UI
+      addChatMessage('user', userText);
+
+      // 2. Seed empty assistant bubble — streaming will fill it token by token
+      addChatMessage('assistant', '');
+      userScrolledUp.current = false;
+
+      setIsStreaming(true);
+      setShowDots(true);
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-groq-api-key': settings.groqApiKey,
+          },
+          body: JSON.stringify({
+            messages: historyMessages,
+            transcript: transcript.map((s) => s.text).slice(-settings.chatTranscriptLines),
+            systemPrompt: settings.chatPrompt || undefined,
+            detailedAnswerPrompt: settings.detailedAnswerPrompt || undefined,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.error ?? `HTTP ${response.status}`);
+        }
+
+        if (!response.body) throw new Error('No response body');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let firstToken = true;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const payload = trimmed.slice(5).trim();
+            if (payload === '[DONE]') break;
+            if (payload.startsWith('[ERROR]')) {
+              throw new Error(payload.slice(7).trim());
+            }
+
+            // Route JSON-encodes tokens to carry embedded newlines safely.
+            let token = '';
+            try {
+              // Attempt to parse properly formatted JSON payload
+              token = JSON.parse(payload) as string;
+            } catch {
+              // Resilience: If payload is [DONE] or a non-JSON fragment, skip or fallback
+              if (payload === '[DONE]') break;
+              token = payload; 
+            }
+
+            if (firstToken) {
+              setShowDots(false);
+              firstToken = false;
+            }
+            if (token) appendToLastMessage(token);
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        // Replace the empty assistant bubble with the error
+        appendToLastMessage(`⚠️ ${msg}`);
+      } finally {
+        setIsStreaming(false);
+        setShowDots(false);
+        inputRef.current?.focus();
+      }
+    },
+    [
+      isStreaming,
+      chatMessages,
+      transcript,
+      settings,
+      addChatMessage,
+      appendToLastMessage,
+    ]
+  );
+
+  // ── Watch for suggestion-triggered messages ────────────────────────────────
+  // When SuggestionsPanel adds a user message via addChatMessage, we need to
+  // fire sendMessage for that content. We detect it by watching chatMessages
+  // for a new user message while not currently streaming.
+  const lastProcessedId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isStreaming) return;
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'user') return;
+    if (lastMsg.id === lastProcessedId.current) return;
+    // Only auto-fire for messages that arrived without a following assistant msg
+    const hasFollowUp =
+      chatMessages.length >= 2 &&
+      chatMessages[chatMessages.length - 1].role === 'assistant';
+    if (hasFollowUp) return;
+
+    lastProcessedId.current = lastMsg.id;
+    sendMessage(lastMsg.content);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMessages]);
+
+  // ── Manual input send ──────────────────────────────────────────────────────
+  const handleManualSend = () => {
+    const text = inputValue.trim();
+    if (!text) return;
+    setInputValue('');
+    lastProcessedId.current = Date.now().toString(); // prevent double-fire
+    sendMessage(text);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleManualSend();
+    }
+  };
+
+  // ── Empty state ────────────────────────────────────────────────────────────
+  const isEmpty = chatMessages.length === 0 && !showDots;
+
+  return (
+    <div className="flex flex-col h-full bg-transparent">
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="px-4 py-3 shrink-0 flex items-center justify-between border-b border-[#1f2937]">
+        <h2 className="text-[10px] font-bold text-[#9ca3af] tracking-wider uppercase">3. CHAT (DETAILED ANSWERS)</h2>
+        <span className="text-[10px] font-semibold text-[#4b5563]">
+          SESSION-ONLY
+        </span>
+      </div>
+
+      {/* ── Info Box ────────────────────────────────────────────────────── */}
+      <div className="px-5 py-6 shrink-0">
+        <div className="p-4 rounded-xl bg-[#1a2333]/40 border border-[#1f2937]">
+          <p className="text-[11px] text-[#9ca3af] leading-relaxed">
+            Clicking a suggestion adds it to this chat and streams a detailed answer (separate prompt, more context). User can also type questions directly. One continuous chat per session — no login, no persistence.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Messages ────────────────────────────────────────────────────── */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-5"
+      >
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center pt-8 h-48 text-center px-4">
+            <p className="text-[13px] text-[#4b5563] italic">
+              Click a suggestion or type a question below.
+            </p>
+          </div>
+        ) : (
+          <>
+            {chatMessages.map((message, idx) => {
+              const isUser = message.role === 'user';
+              if (!isUser && message.content === '' && showDots) return null;
+
+              return (
+                <div key={message.id} className="flex flex-col gap-2">
+                  <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
+                      <div className={`px-4 py-3 rounded-xl text-[13px] leading-relaxed ${
+                        isUser ? 'bg-[#3b82f6] text-white' : 'bg-[#1a2333]/60 text-[#e5e7eb] border border-[#1f2937]'
+                      }`}>
+                        {isUser ? message.content : (
+                          <>
+                            {renderContent(message.content)}
+                            {idx === chatMessages.length - 1 && isStreaming && !showDots && <TypingCursor />}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Dot loader — shown before first streaming token */}
+            {showDots && <DotLoader />}
+          </>
+        )}
+      </div>
+
+      {/* ── Input ────────────────────────────────────────────────────────── */}
+      <div className="p-3 shrink-0">
+        <div className="flex gap-2 items-center bg-[#1a2333] rounded-lg p-1.5 border border-[#1f2937]">
+          <input
+            ref={inputRef}
+            id="chat-input"
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isStreaming ? 'AI is responding…' : 'Ask anything…'}
+            disabled={isStreaming}
+            className="flex-1 bg-transparent border-none text-[#e5e7eb] text-[13px] px-3 py-1.5 focus:ring-0 focus:outline-none placeholder-[#4b5563]"
+          />
+          <button
+            id="chat-send-button"
+            onClick={handleManualSend}
+            disabled={!inputValue.trim() || isStreaming}
+            className="px-4 py-1.5 bg-[#3b82f6] text-white rounded font-bold text-[12px] hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {isStreaming ? 'Wait...' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ChatPanel;
