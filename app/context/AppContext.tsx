@@ -56,6 +56,8 @@ export interface AppContextType {
   chatMessages: ChatMessage[];
   isRecording: boolean;
   isTranscribing: boolean;
+  meetingSummary: string;
+  interimTranscript: string;
 
   // ── Settings (persisted to localStorage) ─────────────────────────────────
   settings: AppSettings;
@@ -70,6 +72,8 @@ export interface AppContextType {
   appendToLastMessage: (chunk: string) => void;
   setIsRecording: (value: boolean) => void;
   setIsTranscribing: (value: boolean) => void;
+  setMeetingSummary: (value: string | ((prev: string) => string)) => void;
+  setInterimTranscript: (value: string) => void;
   resetSession: () => void;
   clearTranscript: () => void;
 }
@@ -90,12 +94,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
   const [isRecording, setIsRecording] = React.useState(false);
   const [isTranscribing, setIsTranscribing] = React.useState(false);
+  const [meetingSummary, setMeetingSummary] = React.useState('');
+  const [interimTranscript, setInterimTranscript] = React.useState('');
 
   const appendTranscript = (text: string) =>
     setTranscript((prev) => [
       ...prev,
       { id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, text, timestamp: Date.now() },
     ]);
+
+  // ── Infinite Context Memory (Rolling RAG) ───────────────────────────────
+  const summarizedCountRef = React.useRef(0);
+  
+  React.useEffect(() => {
+    // When transcript grows 40 lines larger than what's summarized, summarize the oldest 20 unprocessed lines.
+    if (transcript.length - summarizedCountRef.current > 40) {
+      const linesToSummarize = transcript
+        .slice(summarizedCountRef.current, summarizedCountRef.current + 20)
+        .map(t => t.text);
+        
+      summarizedCountRef.current += 20;
+
+      fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          previousSummary: meetingSummary,
+          newTranscript: linesToSummarize,
+          apiKey: settings.groqApiKey,
+        }),
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.summary) setMeetingSummary(d.summary);
+      })
+      .catch(e => console.error('[RollingSummary failed]', e));
+    }
+  }, [transcript.length, meetingSummary, settings.groqApiKey]);
 
   const addSuggestionBatch = (suggestions: Suggestion[]) => {
     if (suggestions.length !== 3) {
@@ -128,6 +163,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setChatMessages([]);
     setIsTranscribing(false);
     setIsRecording(false);
+    setMeetingSummary('');
+    setInterimTranscript('');
+    summarizedCountRef.current = 0;
   };
 
   const clearTranscript = () => setTranscript([]);
@@ -138,6 +176,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     chatMessages,
     isRecording,
     isTranscribing,
+    meetingSummary,
+    interimTranscript,
     settings,
     updateSettings,
     resetSettings,
@@ -147,6 +187,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     appendToLastMessage,
     setIsRecording,
     setIsTranscribing,
+    setMeetingSummary,
+    setInterimTranscript,
     resetSession,
     clearTranscript,
   };
@@ -157,6 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       appendTranscript,
       addChatMessage,
       resetSession,
+      setInterimTranscript,
     };
   }
 

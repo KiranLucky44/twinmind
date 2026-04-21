@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { formatTranscriptForAI, SHARED_AI_GROUNDING } from '../../lib/ai-utils';
 
+export const runtime = 'edge';
+
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'openai/gpt-oss-120b';
+const MODEL_CASCADE = [
+  'openai/gpt-oss-120b',
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant'
+];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,8 +107,8 @@ ${SHARED_AI_GROUNDING}`;
     content: buildSystemPrompt(transcript, basePrompt),
   };
 
-  const groqPayload = {
-    model: GROQ_MODEL,
+  const groqPayload: any = {
+    model: MODEL_CASCADE[0],
     stream: true,
     temperature: 0.3,   // Low temperature = faster, more deterministic, less hallucination
     top_p: 0.9,         // Tighten token distribution without fully greedy decoding
@@ -110,27 +116,54 @@ ${SHARED_AI_GROUNDING}`;
     messages: [systemMessage, ...enrichedMessages],
   };
 
-  // ── 5. Call Groq (streaming) ───────────────────────────────────────────────
-  let groqResponse: Response;
-  try {
-    groqResponse = await fetch(GROQ_CHAT_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(groqPayload),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Network error';
-    return NextResponse.json({ error: `Failed to reach Groq: ${msg}` }, { status: 502 });
+  // ── 5. Call Groq (streaming) with Retries & Cascade ──────────────────────
+  let groqResponse: Response | null = null;
+  let modelIndex = 0;
+  let lastErrorMsg = '';
+  let lastStatus = 500;
+
+  while (modelIndex < MODEL_CASCADE.length) {
+    const currentModel = MODEL_CASCADE[modelIndex];
+    // Update payload with current model in cascade
+    groqPayload.model = currentModel;
+    
+    let attempts = 0;
+    while (attempts < 2) {
+      attempts++;
+      try {
+        groqResponse = await fetch(GROQ_CHAT_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(groqPayload),
+        });
+        
+        if (groqResponse.ok) break; // Break attempt loop
+        
+        const err = await groqResponse.clone().json().catch(() => ({}));
+        lastErrorMsg = err?.error?.message ?? err?.message ?? groqResponse.statusText;
+        lastStatus = groqResponse.status;
+        
+        // Break out of attempt loop instantly if we hit rate limits (cascade triggers)
+        if (lastStatus === 429 || lastStatus === 503) {
+          console.warn(`[Chat ${currentModel}] Overloaded (${lastStatus}). Cascading...`);
+          break;
+        }
+        
+      } catch (err) {
+        lastErrorMsg = err instanceof Error ? err.message : 'Network error';
+        lastStatus = 502;
+      }
+    }
+    
+    if (groqResponse?.ok) break; // Break out of cascade wrapper
+    modelIndex++;
   }
 
-  if (!groqResponse.ok) {
-    const err = await groqResponse.json().catch(() => ({}));
-    const msg = err?.error?.message ?? err?.message ?? groqResponse.statusText;
-    const status = groqResponse.status === 401 ? 401 : groqResponse.status === 429 ? 429 : 500;
-    return NextResponse.json({ error: msg }, { status });
+  if (!groqResponse?.ok) {
+    return NextResponse.json({ error: lastErrorMsg || 'All models failed.' }, { status: lastStatus });
   }
 
   // ── 6. Pipe Groq SSE → client SSE ─────────────────────────────────────────

@@ -13,7 +13,7 @@ interface UseSuggestionsReturn {
 }
 
 export function useSuggestions(): UseSuggestionsReturn {
-  const { transcript, suggestionBatches, addSuggestionBatch, settings } = useApp();
+  const { transcript, suggestionBatches, addSuggestionBatch, settings, meetingSummary } = useApp();
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +28,8 @@ export function useSuggestions(): UseSuggestionsReturn {
   useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
   useEffect(() => { batchesRef.current = suggestionBatches; }, [suggestionBatches]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  const meetingSummaryRef = useRef(meetingSummary);
+  useEffect(() => { meetingSummaryRef.current = meetingSummary; }, [meetingSummary]);
 
   // ── Core fetch ────────────────────────────────────────────────────────────
 
@@ -60,7 +62,9 @@ export function useSuggestions(): UseSuggestionsReturn {
         body: JSON.stringify({
           transcript: lines.slice(-suggestionTranscriptLines),
           previousTitles,
-          systemPrompt: suggestionsPrompt || undefined,
+          systemPrompt: meetingSummaryRef.current 
+            ? `${suggestionsPrompt}\n\nBACKGROUND MEMORY (Use this to answer questions about earlier parts of the meeting):\n${meetingSummaryRef.current}`
+            : suggestionsPrompt,
         }),
       });
 

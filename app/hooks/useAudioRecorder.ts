@@ -17,8 +17,12 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const { appendTranscript, setIsRecording: setAppIsRecording, settings } = useApp();
+  const { appendTranscript, setIsRecording: setAppIsRecording, settings, setInterimTranscript } = useApp();
   const { groqApiKey } = settings;
+  
+  // Track continuous speech recognition state
+  const recognitionRef = useRef<any>(null);
+  const isSpeechRecActiveRef = useRef(false);
 
   // Send audio chunk to transcription API
   const sendChunkForTranscription = useCallback(async (audioBlob: Blob) => {
@@ -48,6 +52,12 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
       
       if (data.text && data.text.trim()) {
         appendTranscript(data.text);
+        
+        // Force Web Speech array reset so it doesn't duplicate what Whisper just solidified
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort(); } catch(err) {} 
+        }
+        setInterimTranscript('');
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -100,6 +110,37 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
         setIsRecording(true);
         setAppIsRecording(true);
         chunksRef.current = [];
+        
+        // --- Native Browser Intereim Recognition Hook ---
+        const SpeechRecognition = typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+        if (SpeechRecognition && !recognitionRef.current) {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          
+          recognition.onresult = (e: any) => {
+            let interim = '';
+            for (let i = 0; i < e.results.length; ++i) {
+              interim += e.results[i][0].transcript;
+            }
+            // Update context state directly for instantaneous DOM reaction
+            setInterimTranscript(interim);
+          };
+          
+          // Re-arm listener automatically if the browser stops it during pauses
+          recognition.onend = () => {
+             if (isSpeechRecActiveRef.current) {
+                try { recognition.start(); } catch (err) {}
+             }
+          };
+
+          recognitionRef.current = recognition;
+        }
+
+        if (recognitionRef.current) {
+          isSpeechRecActiveRef.current = true;
+          try { recognitionRef.current.start(); } catch (err) {}
+        }
       };
 
       // Define scheduleNextChunk in the same scope so it can be called recursively
@@ -138,6 +179,14 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}) {
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
         }
+        
+        // Stop Web Speech
+        isSpeechRecActiveRef.current = false;
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (err) {}
+          recognitionRef.current = null;
+        }
+        setInterimTranscript('');
         
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);

@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { SuggestionType } from '../../context/AppContext';
 import { formatTranscriptForAI, SHARED_AI_GROUNDING } from '../../lib/ai-utils';
 
+export const runtime = 'edge';
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'openai/gpt-oss-120b';
+const MODEL_CASCADE = [
+  'openai/gpt-oss-120b',
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant'
+];
 
 /** How many recent transcript lines to include in the prompt. */
 const MAX_TRANSCRIPT_LINES = 30;
@@ -90,6 +96,7 @@ async function fetchSuggestions(
   previousTitles: string[],
   apiKey: string,
   systemPrompt: string,
+  modelId: string,
 ): Promise<RawSuggestion[]> {
   const response = await fetch(GROQ_CHAT_URL, {
     method: 'POST',
@@ -98,7 +105,7 @@ async function fetchSuggestions(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: modelId,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: buildUserMessage(transcript, previousTitles) },
@@ -229,40 +236,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── 4. Call Groq with retries ───────────────────────────────────────────
+    // ── 4. Call Groq with retries & cascade ─────────────────────────────────
     let raw: RawSuggestion[] = [];
     let validationError: string | null = null;
-    let attempts = 0;
-    const maxRetries = 2;
+    let modelIndex = 0;
+    
+    // We will attempt up to 2 times PER model in the cascade.
+    while (modelIndex < MODEL_CASCADE.length) {
+      const currentModel = MODEL_CASCADE[modelIndex];
+      let attempts = 0;
+      const maxRetries = 2;
+      let successInCurrentModel = false;
 
-    while (attempts < maxRetries) {
-      attempts++;
-      try {
-        raw = await fetchSuggestions(
-          transcript,
-          previousTitles,
-          apiKey.trim(),
-          systemPrompt || SYSTEM_PROMPT,
-        );
+      while (attempts < maxRetries) {
+        attempts++;
+        try {
+          raw = await fetchSuggestions(
+            transcript,
+            previousTitles,
+            apiKey.trim(),
+            systemPrompt || SYSTEM_PROMPT,
+            currentModel
+          );
 
-        validationError = validate(raw);
-        if (!validationError) break; // Success!
+          validationError = validate(raw);
+          if (!validationError) {
+             successInCurrentModel = true;
+             break; // Success!
+          }
 
-        console.warn(`[Suggestions] Attempt ${attempts} failed validation: ${validationError}`);
-      } catch (err) {
-        // If it's an API error (401, 429), don't retry, just throw
-        if ((err as any).status) throw err;
-        
-        validationError = err instanceof Error ? err.message : 'Unknown error';
-        console.warn(`[Suggestions] Attempt ${attempts} hit error: ${validationError}`);
+          console.warn(`[Suggestions ${currentModel}] Attempt ${attempts} failed validation: ${validationError}`);
+        } catch (err) {
+          const status = (err as any).status;
+          // If it's a rate limit (429) or model overload (503), break out of the attempts loop instantly to degrade to the next model.
+          if (status === 429 || status === 503) {
+            console.warn(`[Suggestions] ${currentModel} overloaded (${status}). Cascading...`);
+            validationError = `Rate limit or overload on ${currentModel}`;
+            break; 
+          }
+          
+          validationError = err instanceof Error ? err.message : 'Unknown error';
+          console.warn(`[Suggestions ${currentModel}] Attempt ${attempts} hit error: ${validationError}`);
+          
+          // Don't retry on other 4xx client errors (e.g. 401 Unauthorized), let it throw fully.
+          if (status && status >= 400 && status < 500) throw err;
+        }
       }
+
+      if (successInCurrentModel) break; // Break out of cascade wrapper
+      
+      // If we got here, this model failed after all retries or hit a rate limit. Move to next.
+      modelIndex++;
     }
 
     // ── 5. Check if all attempts failed ─────────────────────────────────────
     if (validationError) {
       console.error('[/api/suggestions] all retries failed:', validationError);
       return NextResponse.json(
-        { error: `Model output invalid after ${maxRetries} attempts: ${validationError}` },
+        { error: `Model output invalid after multiple model cascade attempts: ${validationError}` },
         { status: 500 }
       );
     }

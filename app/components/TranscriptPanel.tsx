@@ -75,7 +75,7 @@ function StatusPill({
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 const TranscriptPanel = () => {
-  const { transcript, isTranscribing, clearTranscript } = useApp();
+  const { transcript, isTranscribing, clearTranscript, interimTranscript } = useApp();
   const {
     isRecording,
     isTranscribing: hookIsTranscribing,
@@ -91,7 +91,7 @@ const TranscriptPanel = () => {
   // Auto-scroll to newest segment — use scrollIntoView for smooth behaviour
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [transcript]);
+  }, [transcript, interimTranscript]);
 
   const handleMicToggle = useCallback(async () => {
     if (isRecording) {
@@ -173,7 +173,7 @@ const TranscriptPanel = () => {
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-5 pb-5 space-y-4"
       >
-        {transcript.length === 0 && !isBusy ? (
+        {transcript.length === 0 && !isBusy && !interimTranscript ? (
           <div className="h-48 flex items-center justify-center animate-fade-up">
             <p className="text-[13px] text-[#4b5563] italic">
               No transcript yet — start the mic.
@@ -196,6 +196,19 @@ const TranscriptPanel = () => {
                 </div>
               </div>
             ))}
+
+            {/* Interim Results (Natively stream to UI) */}
+            {interimTranscript && (
+              <div className="animate-fade-in group">
+                <p className="text-[13px] text-[#9ca3af] italic leading-relaxed animate-pulse">
+                  "{interimTranscript}"
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                  <span className="text-[10px] text-blue-400 font-bold tracking-tight">LISTENING</span>
+                </div>
+              </div>
+            )}
 
             {/* Transcribing indicator */}
             {isBusy && (

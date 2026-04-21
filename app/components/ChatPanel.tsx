@@ -134,6 +134,7 @@ const ChatPanel = () => {
     addChatMessage,
     appendToLastMessage,
     settings,
+    meetingSummary,
   } = useApp();
 
   const [inputValue, setInputValue] = useState('');
@@ -213,7 +214,9 @@ const ChatPanel = () => {
           body: JSON.stringify({
             messages: historyMessages,
             transcript: transcript.map((s) => s.text).slice(-settings.chatTranscriptLines),
-            systemPrompt: settings.chatPrompt || undefined,
+            systemPrompt: meetingSummary
+              ? `${settings.chatPrompt}\n\nBACKGROUND MEMORY (Use this to understand context outside the immediate transcript):\n${meetingSummary}`
+              : settings.chatPrompt,
             detailedAnswerPrompt: settings.detailedAnswerPrompt || undefined,
           }),
           signal: controller.signal,
@@ -239,6 +242,8 @@ const ChatPanel = () => {
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
 
+          let combinedTokens = '';
+
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed.startsWith('data:')) continue;
@@ -263,7 +268,11 @@ const ChatPanel = () => {
               setShowDots(false);
               firstToken = false;
             }
-            if (token) appendToLastMessage(token);
+            if (token) combinedTokens += token;
+          }
+          
+          if (combinedTokens) {
+             appendToLastMessage(combinedTokens);
           }
         }
       } catch (err) {
